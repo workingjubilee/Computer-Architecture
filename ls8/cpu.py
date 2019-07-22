@@ -8,27 +8,36 @@ class CPU:
     def __init__(self):
         """Construct a new CPU."""
         self.pc = 0
-        self.ram = [0]*256
-        self.reg = [0]*8
-
+        self.ram = [0] * 256
+        self.reg = [0] * 8
+        self.ops = [0] * 18 # actual number not known for sure yet
 
         '''
         Opcodes to implement:
-        LDI
-        PRN
-        HLT
-        CALL
-        RET
-        ST
-        JMP
-        PRA
-        IRET
-        MUL
-        JEQ
-        LD
-        CMP
-        POP
-        PUSH
+
+        0 operands:
+            HLT  = 00000001 # 1
+            IRET = 00010011 # 19
+            RET  = 00010001 # 17
+
+        1 operand:
+            CALL = 01010000 # 80
+            DEC  = 01100110 # 102
+            JEQ  = 01010101 # 85
+            JMP  = 01010100 # 84
+            JNE  = 01010110 # 86
+            PRA  = 01001000 # 72
+            PRN  = 01000111 # 71
+            POP  = 01000110 # 70
+            PUSH = 01000101 # 69, nice
+
+        2 operands:
+            ADD  = 10100000 # 160
+            CMP  = 10100111 # 167
+            LD   = 10000011 # 131
+            LDI  = 10000010 # 130
+            MUL  = 10100010 # 162
+            ST   = 10000100 # 132
         '''
 
 
