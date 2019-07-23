@@ -2,10 +2,10 @@
 
 """Main."""
 
-import sys
+from sys import argv
 from cpu import *
 
-cpu = CPU()
-
-cpu.load()
-cpu.run()
+if __name__ == '__main__':
+    cpu = CPU()
+    cpu.load(argv[1])
+    cpu.run()

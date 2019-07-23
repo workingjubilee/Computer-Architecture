@@ -1,6 +1,7 @@
 """CPU functionality."""
 
 import sys
+import re
 from alu import ALU
 
 class CPU:
@@ -12,7 +13,7 @@ class CPU:
         self.fl = 0b00000000
         self.ram = [0] * 256
         self.R = [0,0,0,0,0,0,0,0xF4]
-        self.ALU = ALU(self)
+        self.ALU = ALU(mount=self)
         self.OP = [0,self.halt,self.load_immediate,0,0,0,0,self.print,0,0,0,0,0,0,0,0]
 #         | FF  I7 vector         |    Interrupt vector table
 # | FE  I6 vector         |
@@ -32,7 +33,6 @@ class CPU:
         Opcodes to implement:
 
         0 operands:
-            HLT  = 00000001 # 1
             IRET = 00010011 # 19
             RET  = 00010001 # 17
 
@@ -42,13 +42,11 @@ class CPU:
             JMP  = 01010100 # 84
             JNE  = 01010110 # 86
             PRA  = 01001000 # 72
-            PRN  = 01000111 # 71
             POP  = 01000110 # 70
             PUSH = 01000101 # 69, nice
 
         2 operands:
             LD   = 10000011 # 131
-            LDI  = 10000010 # 130
             ST   = 10000100 # 132
         '''
 
@@ -56,31 +54,28 @@ class CPU:
         return True
 
 
-    def load(self):
+    def load(self, file):
         """Load a program into memory."""
 
         address = 0
-        # For now, we've just hardcoded a program:
-
-        program = [
-            # From print8.ls8
-            0b10000010, # LDI R0,8
-            0b00000000,
-            0b00001000,
-            0b01000111, # PRN R0
-            0b00000000,
-            0b00000001, # HLT
-        ]
+        program = open(file, 'r')
 
         for instruction in program:
-            self.ram[address] = instruction
-            address += 1
+            try:
+                binary = re.match(r'[01]+', instruction)
+                if binary is not None:
+                    self.ram[address] = int(binary[0], 2)
+                    address += 1
+            except ValueError:
+                print(f'Skipping {instruction}')
+
+        program.close()
 
     def load_immediate(self, *operand):
         self.R[operand[0]] = operand[1]
 
     def print(self, *operand):
-        print(operand[0])
+        print(self.R[operand[0]])
 
     def ram_read(self, mar):
         mdr = self.ram[mar]
@@ -122,12 +117,12 @@ class CPU:
             for i in range(len(operands)):
                 operands[i] = s.ram_read(s.pc+1+i)
 
-            if ir & 0b0010000:
+            if ir & 0b00100000:
                 halt = s.ALU.OP[ir & 0b1111](*operands)
             else:
                 halt = s.OP[ir & 0b1111](*operands)
 
-            if ir & 0b0001000:
+            if ir & 0b00010000:
                 raise Exception("TODO")
             else:
                 s.pc += 1 + len(operands)
