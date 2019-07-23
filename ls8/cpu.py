@@ -4,6 +4,7 @@ import sys
 import re
 from alu import ALU
 
+
 class CPU:
     """Main CPU class."""
 
@@ -12,41 +13,26 @@ class CPU:
         self.pc = 0
         self.fl = 0b00000000
         self.ram = [0] * 256
-        self.R = [0,0,0,0,0,0,0,0xF4]
+        self.R = [0, 0, 0, 0, 0, 0, 0, 0xF4]
         self.ALU = ALU(mount=self)
-        self.OP = [0,self.halt,self.load_immediate,0,0,self.push,self.pop,self.print,0,0,0,0,0,0,0,0]
+        self.OP = [0, self.halt, self.load_immediate, 0,
+                   0, self.push, self.pop, self.print]
 
-        self.JOP = [self.call, self.ret, 0, 0, self.jump, self.jeq, self.jne]
+        self.JOP = [self.call, self.ret, 0, 0,
+                    self.jump, self.jeq, self.jne, 0]
         self.OPT = [self.OP, self.JOP, self.ALU.OP]
-#         | FF  I7 vector         |    Interrupt vector table
-# | FE  I6 vector         |
-# | FD  I5 vector         |
-# | FC  I4 vector         |
-# | FB  I3 vector         |
-# | FA  I2 vector         |
-# | F9  I1 vector         |
-# | F8  I0 vector         |
-# | F7  Reserved          |
-# | F6  Reserved          |
-# | F5  Reserved          |
-# | F4  Key pressed       |    Holds the most recent key pressed on the keyboard
-# | F3  Start of Stack    |
 
         '''
         Opcodes to implement:
 
         0 operands:
             IRET = 00010011 # 19
-            RET  = 00010001 # 17
 
         1 operand:
-            CALL = 01010000 # 80
             JEQ  = 01010101 # 85
             JMP  = 01010100 # 84
             JNE  = 01010110 # 86
             PRA  = 01001000 # 72
-            POP  = 01000110 # 70
-            PUSH = 01000101 # 69, nice
 
         2 operands:
             LD   = 10000011 # 131
@@ -54,8 +40,8 @@ class CPU:
         '''
 
     def call(self, *operand):
-        self.R[7] = (self.R[7] -1) & 0xFF
-        self.ram_write(((self.pc +2) & 0xFF), self.R[7])
+        self.R[7] = (self.R[7] - 1) & 0xFF
+        self.ram_write(((self.pc + 2) & 0xFF), self.R[7])
         self.pc = (self.R[operand[0]] & 0xFF)
 
     def jump(self, *operand):
@@ -66,7 +52,7 @@ class CPU:
             self.pc = operand[0]
 
     def jne(self, *operand):
-        if self.fl %2 is 0:
+        if self.fl & 0b1 is 0:
             self.pc = operand[0]
 
     def halt(self, *operands):
@@ -96,7 +82,7 @@ class CPU:
         print(self.R[operand[0]])
 
     def push(self, *operand):
-        self.R[7] = (self.R[7] -1) & 0xFF
+        self.R[7] = (self.R[7] - 1) & 0xFF
         self.ram_write(self.R[operand[0]], self.R[7])
 
     def pop(self, *operand):
@@ -123,7 +109,7 @@ class CPU:
         print(f"TRACE: %02X | %02X %02X %02X |" % (
             self.pc,
             self.fl,
-            #self.ie,
+            # self.ie,
             self.ram_read(self.pc),
             self.ram_read(self.pc + 1),
             self.ram_read(self.pc + 2)
@@ -142,14 +128,17 @@ class CPU:
         while running:
             ir = s.ram_read(s.pc)
 
-            operands = [0] * (ir >> 0b0110)
+            # this uses bitwise operators to "slice" the IR
+            op_ands = ir >> 6
+            op_flags = ir >> 4 & 0b0011
+            op_id = ir & 0b1111
 
-            for i in range(len(operands)):
-                operands[i] = s.ram_read(s.pc+1+i) & 0xFF
+            operands = [0] * (op_ands)
 
+            for i in range(op_ands):
+                operands[i] = s.ram_read(s.pc+1+i)
 
-            s.OPT[(ir >> 0b0100) & 0b0011][ir & 0b1111](*operands)
+            s.OPT[op_flags][op_id](*operands)
 
-            if ir & 0b00010000 == 0:
-                s.pc = (s.pc + 1 + (ir >> 0b0110)) & 0xFF
-
+            if op_flags & 0b1 == 0:
+                s.pc = (s.pc + 1 + (op_ands)) & 0xFF
