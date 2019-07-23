@@ -14,7 +14,10 @@ class CPU:
         self.ram = [0] * 256
         self.R = [0,0,0,0,0,0,0,0xF4]
         self.ALU = ALU(mount=self)
-        self.OP = [0,self.halt,self.load_immediate,0,0,0,0,self.print,0,0,0,0,0,0,0,0]
+        self.OP = [0,self.halt,self.load_immediate,0,0,self.push,self.pop,self.print,0,0,0,0,0,0,0,0]
+
+        self.JOP = [self.call, 0, 0, 0, self.jump, self.jeq, self.jne]
+        self.OPT = [self.OP, self.JOP, self.ALU.OP]
 #         | FF  I7 vector         |    Interrupt vector table
 # | FE  I6 vector         |
 # | FD  I5 vector         |
@@ -50,9 +53,22 @@ class CPU:
             ST   = 10000100 # 132
         '''
 
-    def halt(self, *operands):
-        return True
+    def call(self, *operands):
+        pass
 
+    def jump(self, *operand):
+        self.pc = operand[0] -2
+
+    def jeq(self, *operand):
+        if self.fl & 0b1:
+            self.pc = operand[0] -2
+
+    def jne(self, *operand):
+        if self.fl %2 is 0:
+            self.pc = operand[0] -2
+
+    def halt(self, *operands):
+        sys.exit(1)
 
     def load(self, file):
         """Load a program into memory."""
@@ -62,7 +78,7 @@ class CPU:
 
         for instruction in program:
             try:
-                binary = re.match(r'[01]+', instruction)
+                binary = re.match(r'[01]{8}', instruction)
                 if binary is not None:
                     self.ram[address] = int(binary[0], 2)
                     address += 1
@@ -72,17 +88,24 @@ class CPU:
         program.close()
 
     def load_immediate(self, *operand):
-        self.R[operand[0]] = operand[1]
+        self.R[operand[0]] = (operand[1] & 0xFF)
 
     def print(self, *operand):
         print(self.R[operand[0]])
 
+    def push(self, *operand):
+        self.R[7] = (self.R[7] -1) & 0xFF
+        self.ram_write(self.R[operand[0]], self.R[7])
+
+    def pop(self, *operand):
+        self.R[operand[0]] = self.ram_read(self.R[7]) & 0xFF
+        self.R[7] = (self.R[7] + 1) & 0xFF
+
     def ram_read(self, mar):
-        mdr = self.ram[mar]
-        return mdr
+        return self.ram[mar]
 
     def ram_write(self, mdr, mar):
-        self.ram[mar] = mdr
+        self.ram[mar] = mdr & 0xFF
         return None
 
     def trace(self):
@@ -107,22 +130,18 @@ class CPU:
 
     def run(self):
         """Run the CPU."""
-        halt = None
+        running = True
         s = self
 
-        while halt == None:
+        while running:
             ir = s.ram_read(s.pc)
-            operands = [0] * (ir >> 0b00000110)
+
+            operands = [0] * (ir >> 0b0110)
 
             for i in range(len(operands)):
                 operands[i] = s.ram_read(s.pc+1+i)
+                operands[i] = operands[i] & 0xFF
 
-            if ir & 0b00100000:
-                halt = s.ALU.OP[ir & 0b1111](*operands)
-            else:
-                halt = s.OP[ir & 0b1111](*operands)
+            s.OPT[(ir >> 0b0100) & 0b0011][ir & 0b1111](*operands)
 
-            if ir & 0b00010000:
-                raise Exception("TODO")
-            else:
-                s.pc += 1 + len(operands)
+            s.pc = (s.pc + 1 + (ir >> 0b0110)) & 0xFF
