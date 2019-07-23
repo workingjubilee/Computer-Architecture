@@ -16,7 +16,7 @@ class CPU:
         self.ALU = ALU(mount=self)
         self.OP = [0,self.halt,self.load_immediate,0,0,self.push,self.pop,self.print,0,0,0,0,0,0,0,0]
 
-        self.JOP = [self.call, 0, 0, 0, self.jump, self.jeq, self.jne]
+        self.JOP = [self.call, self.ret, 0, 0, self.jump, self.jeq, self.jne]
         self.OPT = [self.OP, self.JOP, self.ALU.OP]
 #         | FF  I7 vector         |    Interrupt vector table
 # | FE  I6 vector         |
@@ -53,19 +53,21 @@ class CPU:
             ST   = 10000100 # 132
         '''
 
-    def call(self, *operands):
-        pass
+    def call(self, *operand):
+        self.R[7] = (self.R[7] -1) & 0xFF
+        self.ram_write(((self.pc +2) & 0xFF), self.R[7])
+        self.pc = (self.R[operand[0]] & 0xFF)
 
     def jump(self, *operand):
-        self.pc = operand[0] -2
+        self.pc = operand[0]
 
     def jeq(self, *operand):
         if self.fl & 0b1:
-            self.pc = operand[0] -2
+            self.pc = operand[0]
 
     def jne(self, *operand):
         if self.fl %2 is 0:
-            self.pc = operand[0] -2
+            self.pc = operand[0]
 
     def halt(self, *operands):
         sys.exit(1)
@@ -99,6 +101,10 @@ class CPU:
 
     def pop(self, *operand):
         self.R[operand[0]] = self.ram_read(self.R[7]) & 0xFF
+        self.R[7] = (self.R[7] + 1) & 0xFF
+
+    def ret(self, *operand):
+        self.pc = self.ram_read(self.R[7]) & 0xFF
         self.R[7] = (self.R[7] + 1) & 0xFF
 
     def ram_read(self, mar):
@@ -139,9 +145,11 @@ class CPU:
             operands = [0] * (ir >> 0b0110)
 
             for i in range(len(operands)):
-                operands[i] = s.ram_read(s.pc+1+i)
-                operands[i] = operands[i] & 0xFF
+                operands[i] = s.ram_read(s.pc+1+i) & 0xFF
+
 
             s.OPT[(ir >> 0b0100) & 0b0011][ir & 0b1111](*operands)
 
-            s.pc = (s.pc + 1 + (ir >> 0b0110)) & 0xFF
+            if ir & 0b00010000 == 0:
+                s.pc = (s.pc + 1 + (ir >> 0b0110)) & 0xFF
+
