@@ -2,6 +2,8 @@
 
 import sys
 import re
+import binascii
+from time import monotonic
 from alu import ALU
 
 
@@ -15,45 +17,84 @@ class CPU:
         self.ram = [0] * 256
         self.R = [0, 0, 0, 0, 0, 0, 0, 0xF4]
         self.ALU = ALU(mount=self)
-        self.OP = [0, self.halt, self.load_immediate, 0,
-                   0, self.push, self.pop, self.print]
+        self.OP = [0, self.halt, self.load_this, self.load_mem,
+                   self.store, self.push, self.pop, self.print_decimal,
+                   self.print_ASCII]
 
-        self.JOP = [self.call, self.ret, 0, 0,
+        self.JOP = [self.call, self.ret, 0, self.iret,
                     self.jump, self.jeq, self.jne, 0]
         self.OPT = [self.OP, self.JOP, self.ALU.OP]
+        self.tick = monotonic()
+        self.tock = monotonic()
+        self.listening = True
 
         '''
         Opcodes to implement:
 
         0 operands:
             IRET = 00010011 # 19
-
-        1 operand:
-            JEQ  = 01010101 # 85
-            JMP  = 01010100 # 84
-            JNE  = 01010110 # 86
-            PRA  = 01001000 # 72
-
-        2 operands:
-            LD   = 10000011 # 131
-            ST   = 10000100 # 132
         '''
+    def adhd(self):
+        bitmask = self.R[5] & self.R[6]
+        if bitmask:
+            vector = -1
+            for bit in range(8):
+                # Right shift interrupts down by i, then mask with 1 to see if that bit was set
+                if ((bitmask >> bit) & 1) == 1:
+                    vector = bit
+                    self.R[6] = self.R[6] ^ (2**bit)
+                    break
+            self.interrupt(vector)
+        return
 
     def call(self, *operand):
         self.R[7] = (self.R[7] - 1) & 0xFF
         self.ram_write(((self.pc + 2) & 0xFF), self.R[7])
         self.pc = (self.R[operand[0]] & 0xFF)
 
+    def clock(self):
+        self.tick = monotonic()
+        if self.tick-self.tock > 1:
+            self.R[6] = self.R[6] | 0b0001
+            self.tock = monotonic()
+        return
+
     def jump(self, *operand):
-        self.pc = operand[0]
+        self.pc = self.R[operand[0]]
 
     def jeq(self, *operand):
         if self.fl & 0b1:
-            self.pc = operand[0]
+            self.pc = self.R[operand[0]]
+        else:
+            self.pc = (self.pc + 2) & 0xFF
 
     def jne(self, *operand):
         if self.fl & 0b1 is 0:
-            self.pc = operand[0]
+            self.pc = self.R[operand[0]]
+        else:
+            self.pc = (self.pc + 2) & 0xFF
+
+    def interrupt(self, vector):
+        self.R[5] = 0
+        self.R[6] = 0
+        for register in range(7):
+            self.push(register)
+        self.R[7] = (self.R[7] - 1) & 0xFF
+        self.ram_write(self.fl, self.R[7])
+        self.R[7] = (self.R[7] - 1) & 0xFF
+        self.ram_write(self.pc, self.R[7])
+        self.listening = False
+        self.pc = self.ram[0xF8 + vector]
+        return
+
+    def iret(self, *operand):
+        for register in range(6, -1, -1):
+            self.pop(register)
+        self.fl = self.ram_read(self.R[7]) & 0xFF
+        self.R[7] = (self.R[7] + 1) & 0xFF
+        self.ret()
+        self.listening = True
+        return
 
     def halt(self, *operands):
         sys.exit(1)
@@ -66,7 +107,7 @@ class CPU:
 
         for instruction in program:
             try:
-                binary = re.match(r'[01]{8}', instruction)
+                binary = re.match(r'^[01]{8}', instruction)
                 if binary is not None:
                     self.ram[address] = int(binary[0], 2)
                     address += 1
@@ -75,10 +116,16 @@ class CPU:
 
         program.close()
 
-    def load_immediate(self, *operand):
+    def load_mem(self, *operand):
+        self.R[operand[0]] = self.ram_read(self.R[operand[1]])
+
+    def load_this(self, *operand):
         self.R[operand[0]] = (operand[1] & 0xFF)
 
-    def print(self, *operand):
+    def print_ASCII(self, *operand):
+        print(chr(self.R[operand[0]]))
+
+    def print_decimal(self, *operand):
         print(self.R[operand[0]])
 
     def push(self, *operand):
@@ -98,7 +145,9 @@ class CPU:
 
     def ram_write(self, mdr, mar):
         self.ram[mar] = mdr & 0xFF
-        return None
+
+    def store(self, *operand):
+        self.ram_write(self.R[operand[1]], self.R[operand[0]])
 
     def trace(self):
         """
@@ -126,19 +175,30 @@ class CPU:
         s = self
 
         while running:
-            ir = s.ram_read(s.pc)
+            try:
+                if s.R[5] > 0 and s.listening:
+                    s.clock()
+                    s.adhd()
 
-            # this uses bitwise operators to "slice" the IR
-            op_ands = ir >> 6
-            op_flags = ir >> 4 & 0b0011
-            op_id = ir & 0b1111
+                ir = s.ram_read(s.pc)
 
-            operands = [0] * (op_ands)
+                # this uses bitwise operators to "slice" the IR
+                op_ands = ir >> 6
+                op_flags = ir >> 4 & 0b0011
+                op_id = ir & 0b1111
 
-            for i in range(op_ands):
-                operands[i] = s.ram_read(s.pc+1+i)
+                operands = [0] * (op_ands)
 
-            s.OPT[op_flags][op_id](*operands)
+                for i in range(op_ands):
+                    operands[i] = s.ram_read(s.pc+1+i)
 
-            if op_flags & 0b1 == 0:
-                s.pc = (s.pc + 1 + (op_ands)) & 0xFF
+                s.OPT[op_flags][op_id](*operands)
+
+                if op_flags & 0b1 == 0:
+                    s.pc = (s.pc + 1 + (op_ands)) & 0xFF
+            except TypeError:
+                print(bin(ir))
+                print(bin(op_ands))
+                print(bin(op_flags))
+                print(bin(op_id))
+                raise Exception("Doh!")
